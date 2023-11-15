@@ -16,7 +16,9 @@ end
 function get_residuals!(cache::Cache, thread_id)
     lock(cache.rlock)
     try
-        return get!(cache.residuals, thread_id, Vector{Float64}(undef, cache.N))
+        return get!(cache.residuals, thread_id) do
+            Vector{Float64}(undef, cache.N)
+        end
     finally
         unlock(cache.rlock)
     end
@@ -26,7 +28,9 @@ end
 function get_residuals_jacobian!(cache::Cache, thread_id)
     lock(cache.jlock)
     try
-        return get!(cache.residuals_jac, thread_id, Matrix{Float64}(undef, cache.N, cache.K))
+        return get!(cache.residuals_jac, thread_id) do
+            Matrix{Float64}(undef, cache.N, cache.K)
+        end
     finally
         unlock(cache.jlock)
     end
