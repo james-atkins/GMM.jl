@@ -43,8 +43,10 @@ end
     e = randn(1000)
 
     y = (X * beta) .+ e
+    beta_hat = (Z' * X) \ (Z' * y)
 
     model = IV(y, X, Z)
+    _, beta_hat_gmm = solve(model, I)
 
-    solve(model, I)
+    @test isapprox(beta_hat, beta_hat_gmm)
 end

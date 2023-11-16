@@ -28,20 +28,28 @@ function gmm_residuals_constraints_jacobians!(ols::OLS, beta, residuals_jacobian
 end
 
 @testset "OLS" begin
+    N = 1_000
     beta = [0.25, 0.75]
-    x1 = 10 .* randn(1000)
-    x2 = exp.(randn(1000))
+    x1 = 10 .* randn(N)
+    x2 = exp.(randn(N))
     X = [x1 x2]
-    e = randn(1000)
+    e = randn(N)
 
     y = (X * beta) .+ e
+    beta_hat = (X' * X) \ (X' * y)
 
     model = OLS(y, X)
+    _, beta_hat_gmm = solve(model, I)
 
-    solve(model, I)
+    @test isapprox(beta_hat, beta_hat_gmm)
 end
 
-
+# We can also model OLS as a constrained GMM as follows:
+# - Residual function r(ε, β) = ε
+# - Constraint function c(ε, β) = ε - (y - Xβ)
+# The Jacobians are as follows:
+# ∂r/∂ε = I  ∂r/∂β = 0
+# ∂c/∂ε = I  ∂c/∂β = X
 struct OLSConstraints <: GMMModel
     y::Vector{Float64}
     X::Matrix{Float64}
@@ -88,15 +96,20 @@ function gmm_residuals_constraints_jacobians!(ols::OLSConstraints, theta, residu
 end
 
 @testset "OLS with constraints" begin
-    beta = [0.25, 0.75]
-    x1 = 10 .* randn(1000)
-    x2 = exp.(randn(1000))
+    N = 1_000
+    beta = [0.75, 0.25]
+    x1 = 10 .* randn(N)
+    x2 = exp.(randn(N))
     X = [x1 x2]
-    e = randn(1000)
+    e = randn(N)
 
     y = (X * beta) .+ e
+    beta_hat = (X' * X) \ (X' * y)
 
     model = OLSConstraints(y, X)
+    _, theta_hat_gmm = solve(model, I)
 
-    solve(model, I)
+    beta_hat_gmm = theta_hat_gmm[N+1:end]
+
+    @test isapprox(beta_hat, beta_hat_gmm)
 end

@@ -109,90 +109,92 @@ function solve(model::GMMModel, W)
 
     kc = KNITRO.KN_new()
 
-    # Add the variables
-    var_m_indices = KNITRO.KN_add_vars(kc, M)
-    var_theta_indices = KNITRO.KN_add_vars(kc, K)
+    try
+        # Add the variables
+        var_m_indices = KNITRO.KN_add_vars(kc, M)
+        var_theta_indices = KNITRO.KN_add_vars(kc, K)
 
-    #######################################
-    #        Add the GMM objective        #
-    #######################################
+        #######################################
+        #        Add the GMM objective        #
+        #######################################
 
-    # In matrix algebra, the GMM objective is m' W m.
-    # We have M own-quadratic terms plus M(M-1)/2 cross-quadratic terms. E.g. if M=4, we have the following:
-    # a² b² c² d²
-    # ab ac ad
-    # bc bd
-    # cd
-    num_obj_terms = M + div(M * (M - 1), 2)
+        # In matrix algebra, the GMM objective is m' W m.
+        # We have M own-quadratic terms plus M(M-1)/2 cross-quadratic terms. E.g. if M=4, we have the following:
+        # a² b² c² d²
+        # ab ac ad
+        # bc bd
+        # cd
+        num_obj_terms = M + div(M * (M - 1), 2)
 
-    coefs = Vector{Float64}(undef, 0)
-    sizehint!(coefs, num_obj_terms)
+        coefs = Vector{Float64}(undef, 0)
+        sizehint!(coefs, num_obj_terms)
 
-    index_vars_1 = Vector{eltype(var_m_indices)}(undef, 0)
-    sizehint!(index_vars_1, num_obj_terms)
+        index_vars_1 = Vector{eltype(var_m_indices)}(undef, 0)
+        sizehint!(index_vars_1, num_obj_terms)
 
-    index_vars_2 = Vector{eltype(var_m_indices)}(undef, 0)
-    sizehint!(index_vars_2, num_obj_terms)
+        index_vars_2 = Vector{eltype(var_m_indices)}(undef, 0)
+        sizehint!(index_vars_2, num_obj_terms)
 
-    # This presumes that W is column-major order.
-    # TODO: make this more general and don't require one based indexing
-    for i = 1:M
-        for j = i:M
-            if i == j
-                push!(coefs, W[j, i])
-            else
-                push!(coefs, 2 * W[j, i])
+        # This presumes that W is column-major order.
+        # TODO: make this more general and don't require one based indexing
+        for i = 1:M
+            for j = i:M
+                if i == j
+                    push!(coefs, W[j, i])
+                else
+                    push!(coefs, 2 * W[j, i])
+                end
+                push!(index_vars_1, var_m_indices[i])
+                push!(index_vars_2, var_m_indices[j])
             end
-            push!(index_vars_1, var_m_indices[i])
-            push!(index_vars_2, var_m_indices[j])
         end
+
+        KNITRO.KN_add_obj_quadratic_struct(kc, index_vars_1, index_vars_2, coefs)
+
+        #######################################
+        #        Add the constraints          #
+        #######################################
+
+        # The constrains are
+        #   m - Z' r(θ) = 0  (M constraints)
+        #   c(θ)        = 0  (C constraints)
+
+        con_indices = KNITRO.KN_add_cons(kc, M + C)
+        con_m_indices = con_indices[1:M]
+        KNITRO.KN_set_con_eqbnds_all(kc, fill(0.0, M + C))
+
+        # Add the linear constraints for m
+        KNITRO.KN_add_con_linear_struct(kc, con_m_indices, var_m_indices, fill(1.0, M))
+
+        # Add the non-linear, -Z'r(θ) and c(θ), part of the constraints. As r(θ) and c(θ) may contain shared
+        # calculations, add a single callback that calculates them both at the same time.
+        cb_con = KNITRO.KN_add_eval_callback(kc, false, con_indices, eval_constraints)
+
+        # Compute the gradient of the non-linear part of the constraints, [-Z'∂r/∂θ ∂C/∂θ]'
+        # As ∂C/∂m = 0, we only need to compute the Jacobian wrt θ
+        KNITRO.KN_set_cb_grad(
+            kc,
+            cb_con,
+            eval_constraints_jac,
+            nV = 0,  # Does not evaluate the gradient of the objective
+            # Column order major
+            jacIndexCons = repeat(con_indices, outer = length(var_theta_indices)),
+            jacIndexVars = repeat(var_theta_indices, inner = length(con_indices)),
+        )
+
+        cache = Cache(N = N, K = K, M = M, C = C)
+        KNITRO.KN_set_cb_user_params(kc, cb_con, (model, cache))
+
+        status = KNITRO.KN_solve(kc)
+        if status != KNITRO.KN_RC_OPTIMAL_OR_SATISFACTORY
+            error("Knitro could not find locally optimal solution!")
+        end
+
+        theta_opt = KNITRO.KN_get_var_primal_values(kc, var_theta_indices)
+        obj_value = KNITRO.KN_get_obj_value(kc)
+
+        return obj_value, theta_opt
+    finally
+        KNITRO.KN_free(kc)
     end
-
-    KNITRO.KN_add_obj_quadratic_struct(kc, index_vars_1, index_vars_2, coefs)
-
-    #######################################
-    #        Add the constraints          #
-    #######################################
-
-    # The constrains are
-    #   m - Z' r(θ) = 0  (M constraints)
-    #   c(θ)        = 0  (C constraints)
-
-    con_indices = KNITRO.KN_add_cons(kc, M + C)
-    con_m_indices = con_indices[1:M]
-    KNITRO.KN_set_con_eqbnds_all(kc, fill(0.0, M + C))
-
-    # Add the linear constraints for m
-    KNITRO.KN_add_con_linear_struct(kc, con_m_indices, var_m_indices, fill(1.0, M))
-
-    # Add the non-linear, -Z'r(θ) and c(θ), part of the constraints. As r(θ) and c(θ) may contain shared
-    # calculations, add a single callback that calculates them both at the same time.
-    cb_con = KNITRO.KN_add_eval_callback(kc, false, con_indices, eval_constraints)
-
-    # Compute the gradient of the non-linear part of the constraints, [-Z'∂r/∂θ ∂C/∂θ]'
-    # As ∂C/∂m = 0, we only need to compute the Jacobian wrt θ
-    KNITRO.KN_set_cb_grad(
-        kc,
-        cb_con,
-        eval_constraints_jac,
-        nV = 0,  # Does not evaluate the gradient of the objective
-        # Column order major
-        jacIndexCons = repeat(con_indices, outer = length(var_theta_indices)),
-        jacIndexVars = repeat(var_theta_indices, inner = length(con_indices)),
-    )
-
-    cache = Cache(N = N, K = K, M = M, C = C)
-    KNITRO.KN_set_cb_user_params(kc, cb_con, (model, cache))
-
-    nStatus = KNITRO.KN_solve(kc)
-    nStatus, objSol, x, _ = KNITRO.KN_get_solution(kc)
-
-    println()
-    println("Knitro converged with final status = ", nStatus)
-    println("  optimal objective value  = ", objSol)
-    println("  optimal primal values x  = ", x)
-    println("  feasibility violation    = ", KNITRO.KN_get_abs_feas_error(kc))
-    println("  KKT optimality violation = ", KNITRO.KN_get_abs_opt_error(kc))
-
-    KNITRO.KN_free(kc)
 end

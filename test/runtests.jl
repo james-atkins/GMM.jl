@@ -15,4 +15,4 @@ using LinearAlgebra: I
 Random.seed!(12345)
 
 include("ols.jl")
-# include("iv.jl")
+include("iv.jl")
