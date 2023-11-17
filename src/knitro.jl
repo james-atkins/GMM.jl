@@ -70,7 +70,7 @@ function eval_constraints_jac(kc, cb, evalRequest, evalResult, userParams)
     theta = @view evalRequest.x[cache.M+1:end]
     r_jac = get_residuals_jacobian!(cache, evalRequest.threadID)
 
-    jac = reshape(evalResult.jac, cache.K, cache.M + cache.C)
+    jac = reshape(evalResult.jac, cache.M + cache.C, cache.K)
     m_jac = @view jac[1:cache.M, :]
     c_jac = @view jac[cache.M+1:end, :]
 
