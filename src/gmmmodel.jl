@@ -39,3 +39,9 @@ end
 function gmm_residuals_constraints_jacobians!(model::GMMModel, theta, residuals_jacobian, constraints_jacobian)
     error("gmm_residuals_constraints_jacobians! not defined for model type $(typeof(model))")
 end
+
+
+function gmm_sparsity(model::GMMModel)
+    return nothing
+end
+

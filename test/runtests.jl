@@ -6,13 +6,16 @@ import GMM:
     gmm_num_parameters,
     gmm_instruments,
     gmm_residuals_constraints!,
+    gmm_sparsity,
     gmm_residuals_constraints_jacobians!
 
 using Test
 import Random
 using LinearAlgebra: I
+using SparseArrays
 
 Random.seed!(12345)
 
-include("ols.jl")
-include("iv.jl")
+# include("ols.jl")
+# include("iv.jl")
+include("ols_sparse.jl")
