@@ -44,6 +44,24 @@ end
     @test isapprox(beta_hat, beta_hat_gmm)
 end
 
+@testset "OLS with starting value" begin
+    N = 1_000
+    beta = [0.25, 0.75]
+    x1 = 10 .* randn(N)
+    x2 = exp.(randn(N))
+    X = [x1 x2]
+    e = randn(N)
+
+    y = (X * beta) .+ e
+    beta_hat = (X' * X) \ (X' * y)
+
+    model = OLS(y, X)
+    _, beta_hat_gmm = solve(model, I, initial_theta = [0.3, 0.7])
+
+    @test isapprox(beta_hat, beta_hat_gmm)
+end
+
+
 # We can also model OLS as a constrained GMM as follows:
 # - Residual function r(ε, β) = ε
 # - Constraint function c(ε, β) = ε - (y - Xβ)

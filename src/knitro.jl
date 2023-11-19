@@ -82,7 +82,7 @@ function eval_constraints_jac(kc, cb, evalRequest, evalResult, userParams)
 end
 
 
-function solve(model::GMMModel, W)
+function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothing)
     Base.require_one_based_indexing(W)
 
     N = gmm_num_residuals(model)
@@ -113,6 +113,19 @@ function solve(model::GMMModel, W)
         # Add the variables
         var_m_indices = KNITRO.KN_add_vars(kc, M)
         var_theta_indices = KNITRO.KN_add_vars(kc, K)
+
+        if initial_theta !== nothing
+            if length(initial_theta) != K
+                throw(DimensionMismatch("initial_theta has wrong length"))
+            end
+
+            initial_residuals = Vector{Float64}(undef, N)
+            initial_constraints = Vector{Float64}(undef, C)
+            gmm_residuals_constraints!(model, initial_theta, initial_residuals, initial_constraints)
+
+            initial_m = gmm_instruments(model)' * initial_residuals
+            KNITRO.KN_set_var_primal_init_values_all(kc, [ initial_m; initial_theta ])
+        end
 
         #######################################
         #        Add the GMM objective        #
