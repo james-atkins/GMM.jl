@@ -51,6 +51,9 @@ function eval_constraints(kc, cb, evalRequest, evalResult, userParams)
     m = @view evalResult.c[1:cache.M]
     c = @view evalResult.c[cache.M+1:end]
 
+    @assert length(c) == cache.C "eval_constraints: m has invalid length"
+    @assert length(theta) == cache.K "eval_constraints: theta has invalid length"
+
     # Compute the residuals and the constraints in-place
     gmm_residuals_constraints!(model, theta, r, c)
     mul!(m, gmm_instruments(model)', r, -1, 0)
@@ -69,6 +72,8 @@ function eval_constraints_jac(kc, cb, evalRequest, evalResult, userParams)
 
     theta = @view evalRequest.x[cache.M+1:end]
     r_jac = get_residuals_jacobian!(cache, evalRequest.threadID)
+
+    @assert length(theta) == cache.K "eval_constraints: theta has invalid length"
 
     jac = reshape(evalResult.jac, cache.M + cache.C, cache.K)
     m_jac = @view jac[1:cache.M, :]
