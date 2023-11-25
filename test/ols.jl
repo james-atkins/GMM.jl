@@ -39,9 +39,10 @@ end
     beta_hat = (X' * X) \ (X' * y)
 
     model = OLS(y, X)
-    _, beta_hat_gmm = solve(model, I)
+    result = solve(model, I)
 
-    @test isapprox(beta_hat, beta_hat_gmm)
+    @test gmm_success(result)
+    @test isapprox(beta_hat, gmm_estimate(result))
 end
 
 @testset "OLS with starting value" begin
@@ -56,9 +57,10 @@ end
     beta_hat = (X' * X) \ (X' * y)
 
     model = OLS(y, X)
-    _, beta_hat_gmm = solve(model, I, initial_theta = [0.3, 0.7])
+    result = solve(model, I, initial_theta = [0.3, 0.7])
 
-    @test isapprox(beta_hat, beta_hat_gmm)
+    @test gmm_success(result)
+    @test isapprox(beta_hat, gmm_estimate(result))
 end
 
 
@@ -125,11 +127,15 @@ end
     beta_hat = (X' * X) \ (X' * y)
 
     model = OLSConstraints(y, X)
-    _, theta_hat_gmm = solve(model, I)
+    result = solve(model, I)
 
-    beta_hat_gmm = theta_hat_gmm[N+1:end]
-
+    @test gmm_success(result)
+    beta_hat_gmm = gmm_estimate(result)[N+1:end]
     @test isapprox(beta_hat, beta_hat_gmm)
+
+    constraints_jac = gmm_constraints_jacobian(result)
+    @test constraints_jac[:, 1:N] == I
+    @test constraints_jac[:, N+1:end] == X
 end
 
 
@@ -140,7 +146,7 @@ end
 # The Jacobians are as follows:
 # ∂r/∂ε = I  ∂r/∂β = 0
 # ∂c_1/∂ε = I  ∂c_1/∂β = X
-# ∂c_2/∂ε = )  ∂c_2/∂β = -X'X
+# ∂c_2/∂ε = 0  ∂c_2/∂β = -X'X
 struct OLSRedundantConstraints <: GMMModel
     y::Vector{Float64}
     X::Matrix{Float64}
@@ -177,14 +183,19 @@ function gmm_residuals_constraints!(ols::OLSRedundantConstraints, theta, residua
     constraints[N+1:end] .= ols.X' * (ols.y - ols.X * beta)
 end
 
-function gmm_residuals_constraints_jacobians!(ols::OLSRedundantConstraints, theta, residuals_jacobian, constraints_jacobian)
+function gmm_residuals_constraints_jacobians!(
+    ols::OLSRedundantConstraints,
+    theta,
+    residuals_jacobian,
+    constraints_jacobian,
+)
     N, K = size(ols.X)
     epsilon, beta = theta[1:N], theta[N+1:end]
     @assert length(epsilon) == N
     @assert length(beta) == K
 
     residuals_jacobian .= [I zeros(N, K)]
-    constraints_jacobian .= [ I ols.X ; zeros(K, N) (-ols.X' * ols.X) ]
+    constraints_jacobian .= [I ols.X; zeros(K, N) (-ols.X'*ols.X)]
 end
 
 @testset "OLS with redundant constraints" begin
@@ -199,9 +210,15 @@ end
     beta_hat = (X' * X) \ (X' * y)
 
     model = OLSRedundantConstraints(y, X)
-    _, theta_hat_gmm = solve(model, I)
+    result = solve(model, I)
 
-    beta_hat_gmm = theta_hat_gmm[N+1:end]
-
+    @test gmm_success(result)
+    beta_hat_gmm = gmm_estimate(result)[N+1:end]
     @test isapprox(beta_hat, beta_hat_gmm)
+
+    constraints_jac = gmm_constraints_jacobian(result)
+    @test constraints_jac[1:N, 1:N] == I
+    @test constraints_jac[N+1:end, 1:N] == zeros(2, N)
+    @test constraints_jac[1:N, N+1:end] == X
+    @test constraints_jac[N+1:end, N+1:end] == -X' * X
 end

@@ -129,7 +129,7 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
             gmm_residuals_constraints!(model, initial_theta, initial_residuals, initial_constraints)
 
             initial_m = gmm_instruments(model)' * initial_residuals
-            KNITRO.KN_set_var_primal_init_values_all(kc, [ initial_m; initial_theta ])
+            KNITRO.KN_set_var_primal_init_values_all(kc, [initial_m; initial_theta])
         end
 
         #######################################
@@ -203,16 +203,70 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
         cache = Cache(N = N, K = K, M = M, C = C)
         KNITRO.KN_set_cb_user_params(kc, cb_con, (model, cache))
 
-        status = KNITRO.KN_solve(kc)
-        if status != KNITRO.KN_RC_OPTIMAL_OR_SATISFACTORY
-            error("Knitro could not find locally optimal solution!")
-        end
+        # Add options
+        # KNITRO.KN_set_int_param(kc, KNITRO.KN_PARAM_DERIVCHECK, KNITRO.KN_DERIVCHECK_FIRST)
 
-        theta_opt = KNITRO.KN_get_var_primal_values(kc, var_theta_indices)
+        status = KNITRO.KN_solve(kc)
+        moments = KNITRO.KN_get_var_primal_values(kc, var_m_indices)
+        theta_hat = KNITRO.KN_get_var_primal_values(kc, var_theta_indices)
         obj_value = KNITRO.KN_get_obj_value(kc)
 
-        return obj_value, theta_opt
+        # Get the Jacobian of the moments and constraints
+        jac_num_nz = KNITRO.KN_get_jacobian_nnz(kc)
+        jac_con_indices = Vector{Cint}(undef, jac_num_nz)
+        jac_var_indices = Vector{Cint}(undef, jac_num_nz)
+        jac_values = Vector{Float64}(undef, jac_num_nz)
+        KNITRO.KN_get_jacobian_values(kc, jac_con_indices, jac_var_indices, jac_values)
+
+        @. jac_con_indices += 1
+        @. jac_var_indices += 1
+        jacobian = sparse(jac_con_indices, jac_var_indices, jac_values, M + C, M + K)
+
+        jacobian_g_theta = jacobian[1:M, M+1:end]
+        @assert size(jacobian_g_theta) == (M, K)
+
+        jacobian_c_theta = jacobian[M+1:end, M+1:end]
+        @assert size(jacobian_c_theta) == (C, K)
+
+        return KnitroGMMResult(
+            status = status,
+            objective = obj_value,
+            theta_hat = theta_hat,
+            moments = moments,
+            moments_jacobian = jacobian_g_theta,
+            constraints_jacobian = jacobian_c_theta,
+        )
     finally
         KNITRO.KN_free(kc)
     end
 end
+
+
+Base.@kwdef struct KnitroGMMResult <: GMMResult
+    status::Int
+
+    # The value of the GMM objective function at the optimum
+    objective::Float64
+
+    # The minimiser of the GMM objective function
+    theta_hat::Vector{Float64}
+
+    # The (unscaled) moments at the optimum
+    # g = Z'r  (M-vector)
+    moments::Vector{Float64}
+
+    # The Jacobian of the (unscaled) moments at the optimum
+    # ∑ ∂g/∂θ = Z' ∂r/∂θ  (M x K)
+    moments_jacobian::Matrix{Float64}
+
+    # The Jacobian of the constraints at the optimum
+    constraints_jacobian::Matrix{Float64}
+end
+
+
+gmm_success(result::KnitroGMMResult) = result.status == KNITRO.KN_RC_OPTIMAL_OR_SATISFACTORY
+gmm_objective_value(result::KnitroGMMResult) = result.objective
+gmm_estimate(result::KnitroGMMResult) = result.theta_hat
+gmm_moments(result::KnitroGMMResult) = result.moments
+gmm_moments_jacobian(result::KnitroGMMResult) = result.moments_jacobian
+gmm_constraints_jacobian(result::KnitroGMMResult) = result.constraints_jacobian

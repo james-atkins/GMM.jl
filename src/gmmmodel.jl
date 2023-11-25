@@ -39,3 +39,30 @@ end
 function gmm_residuals_constraints_jacobians!(model::GMMModel, theta, residuals_jacobian, constraints_jacobian)
     error("gmm_residuals_constraints_jacobians! not defined for model type $(typeof(model))")
 end
+
+
+abstract type GMMResult end
+
+function gmm_success(result::GMMResult)
+    error("gmm_result_success not defined for result type $(typeof(result))")
+end
+
+function gmm_objective_value(result::GMMResult)
+    error("gmm_result_objective not defined for result type $(typeof(result))")
+end
+
+function gmm_estimate(result::GMMResult)
+    error("gmm_estimate not defined for result type $(typeof(result))")
+end
+
+function gmm_moments(result::GMMResult)
+    error("gmm_moments not defined for result type $(typeof(result))")
+end
+
+function gmm_moments_jacobian(result::GMMResult)
+    error("gmm_moments_jacobian not defined for result type $(typeof(result))")
+end
+
+function gmm_constraints_jacobian(result::GMMResult)
+    error("gmm_constraints_jacobian not defined for result type $(typeof(result))")
+end

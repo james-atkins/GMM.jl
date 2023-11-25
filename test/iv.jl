@@ -46,7 +46,8 @@ end
     beta_hat = (Z' * X) \ (Z' * y)
 
     model = IV(y, X, Z)
-    _, beta_hat_gmm = solve(model, I)
+    result = solve(model, I)
 
-    @test isapprox(beta_hat, beta_hat_gmm)
+    @test gmm_success(result)
+    @test isapprox(beta_hat, gmm_estimate(result))
 end
