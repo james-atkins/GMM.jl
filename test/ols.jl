@@ -20,11 +20,15 @@ function gmm_instruments(ols::OLS)
 end
 
 function gmm_residuals_constraints!(ols::OLS, beta, residuals, constraints)
-    residuals .= ols.y .- (ols.X * beta)
+    if residuals !== nothing
+        residuals .= ols.y .- (ols.X * beta)
+    end
 end
 
 function gmm_residuals_constraints_jacobians!(ols::OLS, beta, residuals_jacobian, constraints_jacobian)
-    @. residuals_jacobian = -ols.X
+    if residuals_jacobian !== nothing
+        @. residuals_jacobian = -ols.X
+    end
 end
 
 @testset "OLS" begin
@@ -101,8 +105,13 @@ function gmm_residuals_constraints!(ols::OLSConstraints, theta, residuals, const
     @assert length(epsilon) == N
     @assert length(beta) == K
 
-    residuals .= epsilon
-    constraints .= epsilon .- ols.y .+ (ols.X * beta)
+    if residuals !== nothing
+        residuals .= epsilon
+    end
+
+    if constraints !== nothing
+        constraints .= epsilon .- ols.y .+ (ols.X * beta)
+    end
 end
 
 function gmm_residuals_constraints_jacobians!(ols::OLSConstraints, theta, residuals_jacobian, constraints_jacobian)
@@ -111,8 +120,13 @@ function gmm_residuals_constraints_jacobians!(ols::OLSConstraints, theta, residu
     @assert length(epsilon) == N
     @assert length(beta) == K
 
-    residuals_jacobian .= [I zeros(N, K)]
-    constraints_jacobian .= [I ols.X]
+    if residuals_jacobian !== nothing
+        residuals_jacobian .= [I zeros(N, K)]
+    end
+
+    if constraints_jacobian !== nothing
+        constraints_jacobian .= [I ols.X]
+    end
 end
 
 @testset "OLS with constraints" begin
@@ -178,9 +192,14 @@ function gmm_residuals_constraints!(ols::OLSRedundantConstraints, theta, residua
     @assert length(epsilon) == N
     @assert length(beta) == K
 
-    residuals .= epsilon
-    constraints[1:N] .= epsilon .- ols.y .+ (ols.X * beta)
-    constraints[N+1:end] .= ols.X' * (ols.y - ols.X * beta)
+    if residuals !== nothing
+        residuals .= epsilon
+    end
+
+    if constraints !== nothing
+        constraints[1:N] .= epsilon .- ols.y .+ (ols.X * beta)
+        constraints[N+1:end] .= ols.X' * (ols.y - ols.X * beta)
+    end
 end
 
 function gmm_residuals_constraints_jacobians!(
@@ -194,8 +213,13 @@ function gmm_residuals_constraints_jacobians!(
     @assert length(epsilon) == N
     @assert length(beta) == K
 
-    residuals_jacobian .= [I zeros(N, K)]
-    constraints_jacobian .= [I ols.X; zeros(K, N) (-ols.X'*ols.X)]
+    if residuals_jacobian !== nothing
+        residuals_jacobian .= [I zeros(N, K)]
+    end
+
+    if constraints_jacobian !== nothing
+        constraints_jacobian .= [I ols.X; zeros(K, N) (-ols.X'*ols.X)]
+    end
 end
 
 @testset "OLS with redundant constraints" begin

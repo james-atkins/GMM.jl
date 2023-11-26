@@ -21,11 +21,15 @@ function gmm_instruments(iv::IV)
 end
 
 function gmm_residuals_constraints!(iv::IV, beta, residuals, constraints)
-    residuals .= iv.y .- (iv.X * beta)
+    if residuals !== nothing
+        residuals .= iv.y .- (iv.X * beta)
+    end
 end
 
 function gmm_residuals_constraints_jacobians!(iv::IV, beta, residuals_jacobian, constraints_jacobian)
-    @. residuals_jacobian = -iv.X
+    if residuals_jacobian !== nothing
+        @. residuals_jacobian = -iv.X
+    end
 end
 
 @testset "2SLS" begin

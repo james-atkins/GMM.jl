@@ -5,6 +5,7 @@ Base.@kwdef struct Cache
     K::Int  # Number of parameters
     M::Int  # Number of moment conditions
     C::Int  # Number of constraints
+    Z::Matrix{Float64}  # Instruments
 
     rlock::Threads.SpinLock = Threads.SpinLock()
     residuals::Dict{Int32, Vector{Float64}} = Dict()  # N-vector to prevent reallocating storage for residuals
@@ -56,7 +57,7 @@ function eval_constraints(kc, cb, evalRequest, evalResult, userParams)
 
     # Compute the residuals and the constraints in-place
     gmm_residuals_constraints!(model, theta, r, c)
-    mul!(m, gmm_instruments(model)', r, -1, 0)
+    mul!(m, cache.Z', r, -1, 0)
 
     return 0
 end
@@ -81,7 +82,7 @@ function eval_constraints_jac(kc, cb, evalRequest, evalResult, userParams)
 
     # Compute the residual and the constraint Jacobians in-place
     gmm_residuals_constraints_jacobians!(model, theta, r_jac, c_jac)
-    mul!(m_jac, gmm_instruments(model)', r_jac, -1, 0)
+    mul!(m_jac, cache.Z', r_jac, -1, 0)
 
     return 0
 end
@@ -94,6 +95,7 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
     K = gmm_num_parameters(model)
     M = gmm_num_instruments(model)
     C = gmm_num_constraints(model)
+    Z = gmm_instruments(model)
 
     if !isa(W, UniformScaling) && size(W, 1) != M
         throw(DimensionMismatch("W has incompatible size"))
@@ -128,7 +130,7 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
             initial_constraints = Vector{Float64}(undef, C)
             gmm_residuals_constraints!(model, initial_theta, initial_residuals, initial_constraints)
 
-            initial_m = gmm_instruments(model)' * initial_residuals
+            initial_m = Z' * initial_residuals
             KNITRO.KN_set_var_primal_init_values_all(kc, [initial_m; initial_theta])
         end
 
@@ -200,16 +202,21 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
             jacIndexVars = repeat(var_theta_indices, inner = length(con_indices)),
         )
 
-        cache = Cache(N = N, K = K, M = M, C = C)
+        cache = Cache(N = N, K = K, M = M, C = C, Z = Z)
         KNITRO.KN_set_cb_user_params(kc, cb_con, (model, cache))
 
         # Add options
         # KNITRO.KN_set_int_param(kc, KNITRO.KN_PARAM_DERIVCHECK, KNITRO.KN_DERIVCHECK_FIRST)
+        # KNITRO.KN_set_int_param(kc, KNITRO.KN_PARAM_TUNER, KNITRO.KN_TUNER_ON)
 
         status = KNITRO.KN_solve(kc)
-        moments = KNITRO.KN_get_var_primal_values(kc, var_m_indices)
         theta_hat = KNITRO.KN_get_var_primal_values(kc, var_theta_indices)
         obj_value = KNITRO.KN_get_obj_value(kc)
+
+        # Moments
+        r = Vector{Float64}(undef, N)
+        gmm_residuals_constraints!(model, theta_hat, r, nothing)
+        g = r .* Z
 
         # Get the Jacobian of the moments and constraints
         jac_num_nz = KNITRO.KN_get_jacobian_nnz(kc)
@@ -232,8 +239,8 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
             status = status,
             objective = obj_value,
             theta_hat = theta_hat,
-            moments = moments,
-            moments_jacobian = jacobian_g_theta,
+            g = g,
+            g_jacobian = jacobian_g_theta,
             constraints_jacobian = jacobian_c_theta,
         )
     finally
@@ -251,13 +258,12 @@ Base.@kwdef struct KnitroGMMResult <: GMMResult
     # The minimiser of the GMM objective function
     theta_hat::Vector{Float64}
 
-    # The (unscaled) moments at the optimum
-    # g = Z'r  (M-vector)
-    moments::Vector{Float64}
+    # N x M matrix of the (unscaled) moments at the optimum
+    g::Matrix{Float64}
 
     # The Jacobian of the (unscaled) moments at the optimum
     # ∑ ∂g/∂θ = Z' ∂r/∂θ  (M x K)
-    moments_jacobian::Matrix{Float64}
+    g_jacobian::Matrix{Float64}
 
     # The Jacobian of the constraints at the optimum
     constraints_jacobian::Matrix{Float64}
@@ -267,6 +273,6 @@ end
 gmm_success(result::KnitroGMMResult) = result.status == KNITRO.KN_RC_OPTIMAL_OR_SATISFACTORY
 gmm_objective_value(result::KnitroGMMResult) = result.objective
 gmm_estimate(result::KnitroGMMResult) = result.theta_hat
-gmm_moments(result::KnitroGMMResult) = result.moments
-gmm_moments_jacobian(result::KnitroGMMResult) = result.moments_jacobian
+gmm_moments(result::KnitroGMMResult) = result.g
+gmm_moments_jacobian(result::KnitroGMMResult) = result.g_jacobian
 gmm_constraints_jacobian(result::KnitroGMMResult) = result.constraints_jacobian
