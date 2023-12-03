@@ -12,6 +12,12 @@ export GMMModel,
     gmm_estimate,
     gmm_moments,
     gmm_moments_jacobian,
+    gmm_constraints_jacobian,
+    gmm_success,
+    gmm_objective_value,
+    gmm_estimate,
+    gmm_moments,
+    gmm_moments_jacobian,
     gmm_constraints_jacobian
 
 include("knitro.jl")
