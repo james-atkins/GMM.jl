@@ -87,8 +87,23 @@ function eval_constraints_jac(kc, cb, evalRequest, evalResult, userParams)
     return 0
 end
 
+function solve(model::GMMModel, W::AbstractMatrix)
+    return solve_impl(model, W, nothing, ())
+end
 
-function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothing)
+function solve(model::GMMModel, W::AbstractMatrix, options...)
+    return solve_impl(model, W, nothing, options)
+end
+
+function solve(model::GMMModel, W::AbstractMatrix, initial_theta::AbstractVector)
+    return solve_impl(model, W, initial_theta, ())
+end
+
+function solve(model::GMMModel, W::AbstractMatrix, initial_theta::AbstractVector, options...)
+    return solve_impl(model, W, initial_theta, options)
+end
+
+function solve_impl(model::GMMModel, W::AbstractMatrix, initial_theta::Union{Vector, Nothing}, options::Tuple{Vararg{Pair}})
     Base.require_one_based_indexing(W)
 
     N = gmm_num_residuals(model)
@@ -205,9 +220,15 @@ function solve(model::GMMModel, W; initial_theta::Union{Vector, Nothing} = nothi
         cache = Cache(N = N, K = K, M = M, C = C, Z = Z)
         KNITRO.KN_set_cb_user_params(kc, cb_con, (model, cache))
 
-        # Add options
-        # KNITRO.KN_set_int_param(kc, KNITRO.KN_PARAM_DERIVCHECK, KNITRO.KN_DERIVCHECK_FIRST)
-        # KNITRO.KN_set_int_param(kc, KNITRO.KN_PARAM_TUNER, KNITRO.KN_TUNER_ON)
+        for (option, value) in options
+            if isa(value, AbstractFloat)
+                KNITRO.KN_set_double_param(kc, option, value)
+            elseif isa(value, String)
+                KNITRO.KN_set_char_param(kc, option, value)
+            else
+                KNITRO.KN_set_int_param(kc, option, value)
+            end
+        end
 
         status = KNITRO.KN_solve(kc)
         theta_hat = KNITRO.KN_get_var_primal_values(kc, var_theta_indices)
@@ -270,7 +291,7 @@ Base.@kwdef struct KnitroGMMResult <: GMMResult
 end
 
 
-gmm_success(result::KnitroGMMResult) = result.status == KNITRO.KN_RC_OPTIMAL_OR_SATISFACTORY
+gmm_success(result::KnitroGMMResult) = result.status == KNITRO.KN_RC_OPTIMAL_OR_SATISFACTORY || result.status == KNITRO.KN_RC_NEAR_OPT
 gmm_objective_value(result::KnitroGMMResult) = result.objective
 gmm_estimate(result::KnitroGMMResult) = result.theta_hat
 gmm_moments(result::KnitroGMMResult) = result.g
